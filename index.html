@@ -331,454 +331,679 @@
   </script>
 
   <script>
-    let qrCodeReader =
-      null;
+  const MAHIDA_SCAN_MESSAGE_TYPE_ =
+    'MAHIDA_SANTRI_QR_SCAN_V1';
 
-    let qrScannerControls =
-      null;
+  const MAHIDA_SCAN_ACK_TYPE_ =
+    'MAHIDA_SANTRI_QR_SCAN_ACK_V1';
 
-    let qrAlreadyDetected =
-      false;
+  let qrCodeReader =
+    null;
+
+  let qrScannerControls =
+    null;
+
+  let qrAlreadyDetected =
+    false;
+
+  const qrScannerSession =
+    String(
+      new URLSearchParams(
+        window.location.search
+      ).get('session') || ''
+    ).trim();
 
 
-    /**
-     * MASK TOKEN
-     *
-     * Token lengkap tidak pernah
-     * ditampilkan ke halaman.
-     */
-    function maskQrToken_(
-      rawToken
-    ) {
-      const text =
-        String(
-          rawToken || ''
-        ).trim();
-
-      if (
-        text.length <= 20
-      ) {
-        return '***';
-      }
-
-      return (
-        text.substring(0, 12) +
-        '...' +
-        text.substring(
-          text.length - 8
+  /**
+   * SESSION SCANNER
+   */
+  function isValidScannerSession_() {
+    return (
+      /^[0-9a-f]{48}$/
+        .test(
+          qrScannerSession
         )
-      );
-    }
+    );
+  }
 
 
-    /**
-     * STATUS SCANNER
-     */
-    function setScannerStatus_(
-      message,
-      state
+  /**
+   * MASK TOKEN
+   */
+  function maskQrToken_(
+    rawToken
+  ) {
+    const text =
+      String(
+        rawToken || ''
+      ).trim();
+
+    if (
+      text.length <= 20
     ) {
-      const element =
-        document.getElementById(
-          'scannerStatus'
-        );
-
-      element.textContent =
-        message;
-
-      element.className =
-        'status ' +
-        state;
+      return '***';
     }
 
+    return (
+      text.substring(0, 12) +
+      '...' +
+      text.substring(
+        text.length - 8
+      )
+    );
+  }
 
-    /**
-     * RESET HASIL
-     */
-    function clearScannerResult_() {
-      const result =
-        document.getElementById(
-          'scannerResult'
-        );
 
-      const token =
-        document.getElementById(
-          'maskedToken'
-        );
+  /**
+   * STATUS SCANNER
+   */
+  function setScannerStatus_(
+    message,
+    state
+  ) {
+    const element =
+      document.getElementById(
+        'scannerStatus'
+      );
 
+    if (!element) {
+      return;
+    }
+
+    element.textContent =
+      String(
+        message || ''
+      );
+
+    element.className =
+      'status ' +
+      String(
+        state || 'idle'
+      );
+  }
+
+
+  /**
+   * RESET HASIL
+   */
+  function clearScannerResult_() {
+    const result =
+      document.getElementById(
+        'scannerResult'
+      );
+
+    const token =
+      document.getElementById(
+        'maskedToken'
+      );
+
+    if (result) {
       result.classList.remove(
         'show'
       );
-
-      token.textContent = '';
     }
 
+    if (token) {
+      token.textContent = '';
+    }
+  }
 
-    /**
-     * STOP SCANNER
-     */
-    function stopScanner_() {
-      if (
-        qrScannerControls
-      ) {
-        try {
-          qrScannerControls.stop();
-        } catch (error) {
-          // Scanner sudah berhenti.
-        }
+
+  /**
+   * STOP SCANNER
+   */
+  function stopScanner_() {
+    if (
+      qrScannerControls
+    ) {
+      try {
+        qrScannerControls.stop();
+      } catch (error) {
+        // Sudah berhenti.
+      }
+    }
+
+    qrScannerControls =
+      null;
+
+    const video =
+      document.getElementById(
+        'qrVideo'
+      );
+
+    if (
+      video &&
+      video.srcObject
+    ) {
+      try {
+        video.srcObject
+          .getTracks()
+          .forEach(
+            function (track) {
+              track.stop();
+            }
+          );
+
+      } catch (error) {
+        // Tidak memengaruhi scanner.
       }
 
-      qrScannerControls =
+      video.srcObject =
         null;
+    }
+
+    const startButton =
+      document.getElementById(
+        'startButton'
+      );
+
+    const stopButton =
+      document.getElementById(
+        'stopButton'
+      );
+
+    if (startButton) {
+      startButton.disabled =
+        false;
+    }
+
+    if (stopButton) {
+      stopButton.disabled =
+        true;
+    }
+  }
+
+
+  /**
+   * KIRIM TOKEN KE WEB APP
+   *
+   * Token hanya dikirim ke window
+   * yang membuka scanner.
+   */
+  function sendQrToWebApp_(
+    rawToken
+  ) {
+    if (
+      !isValidScannerSession_()
+    ) {
+      setScannerStatus_(
+        'Sesi scanner tidak valid. Buka scanner dari Web App Koperasi.',
+        'error'
+      );
+
+      return false;
+    }
+
+    if (
+      !window.opener ||
+      window.opener.closed
+    ) {
+      setScannerStatus_(
+        'Web App Koperasi tidak ditemukan. Buka scanner dari tombol di Web App.',
+        'error'
+      );
+
+      return false;
+    }
+
+    window.opener.postMessage(
+      {
+        type:
+          MAHIDA_SCAN_MESSAGE_TYPE_,
+
+        session:
+          qrScannerSession,
+
+        token:
+          rawToken
+      },
+
+      /*
+       * Origin Apps Script berada pada
+       * iframe Google yang dapat berbeda.
+       *
+       * Karena itu pengirim memakai "*",
+       * tetapi PENERIMA Web App wajib
+       * memvalidasi origin GitHub +
+       * session acak.
+       */
+      '*'
+    );
+
+    return true;
+  }
+
+
+  /**
+   * QR BERHASIL TERBACA
+   */
+  function handleQrDetected_(
+    rawValue,
+    controls
+  ) {
+    if (
+      qrAlreadyDetected
+    ) {
+      return;
+    }
+
+    const normalized =
+      String(
+        rawValue || ''
+      ).trim();
+
+    const isMahidaQr =
+      /^MHQ1\.[0-9a-f]{96}$/
+        .test(
+          normalized
+        );
+
+    if (!isMahidaQr) {
+      setScannerStatus_(
+        'QR terbaca, tetapi bukan QR Santri Mahida.',
+        'error'
+      );
+
+      return;
+    }
+
+    qrAlreadyDetected =
+      true;
+
+    try {
+      if (controls) {
+        controls.stop();
+      }
+    } catch (error) {
+      // Tidak memengaruhi hasil.
+    }
+
+    qrScannerControls =
+      null;
+
+    const startButton =
+      document.getElementById(
+        'startButton'
+      );
+
+    const stopButton =
+      document.getElementById(
+        'stopButton'
+      );
+
+    if (startButton) {
+      startButton.disabled =
+        false;
+    }
+
+    if (stopButton) {
+      stopButton.disabled =
+        true;
+    }
+
+    const maskedToken =
+      document.getElementById(
+        'maskedToken'
+      );
+
+    const scannerResult =
+      document.getElementById(
+        'scannerResult'
+      );
+
+    if (maskedToken) {
+      maskedToken.textContent =
+        maskQrToken_(
+          normalized
+        );
+    }
+
+    if (scannerResult) {
+      scannerResult.classList.add(
+        'show'
+      );
+    }
+
+    const sent =
+      sendQrToWebApp_(
+        normalized
+      );
+
+    if (sent) {
+      setScannerStatus_(
+        'QR terbaca. Menunggu verifikasi dari Web App Koperasi...',
+        'loading'
+      );
+
+    } else {
+      qrAlreadyDetected =
+        false;
+    }
+  }
+
+
+  /**
+   * MULAI SCANNER
+   */
+  async function startScanner_() {
+    clearScannerResult_();
+
+    qrAlreadyDetected =
+      false;
+
+    /*
+     * Scanner produksi harus dibuka
+     * dari Web App agar memiliki session.
+     */
+    if (
+      !isValidScannerSession_()
+    ) {
+      setScannerStatus_(
+        'Buka scanner ini melalui menu Scan QR Santri pada Web App Koperasi.',
+        'error'
+      );
+
+      return;
+    }
+
+    if (
+      !window.opener ||
+      window.opener.closed
+    ) {
+      setScannerStatus_(
+        'Web App Koperasi tidak terhubung. Tutup halaman ini lalu buka scanner dari Web App.',
+        'error'
+      );
+
+      return;
+    }
+
+    if (
+      !window.ZXingBrowser
+    ) {
+      setScannerStatus_(
+        'Library scanner QR gagal dimuat.',
+        'error'
+      );
+
+      return;
+    }
+
+    if (
+      !navigator.mediaDevices ||
+      typeof navigator.mediaDevices
+        .getUserMedia !==
+        'function'
+    ) {
+      setScannerStatus_(
+        'Browser tidak menyediakan akses kamera.',
+        'error'
+      );
+
+      return;
+    }
+
+    const startButton =
+      document.getElementById(
+        'startButton'
+      );
+
+    const stopButton =
+      document.getElementById(
+        'stopButton'
+      );
+
+    if (startButton) {
+      startButton.disabled =
+        true;
+    }
+
+    if (stopButton) {
+      stopButton.disabled =
+        false;
+    }
+
+    setScannerStatus_(
+      'Meminta izin kamera...',
+      'loading'
+    );
+
+    try {
+      qrCodeReader =
+        new ZXingBrowser
+          .BrowserQRCodeReader();
 
       const video =
         document.getElementById(
           'qrVideo'
         );
 
-      if (
-        video &&
-        video.srcObject
-      ) {
-        try {
-          video.srcObject
-            .getTracks()
-            .forEach(function (track) {
-              track.stop();
-            });
-        } catch (error) {
-          // Tidak memengaruhi scanner.
+      const constraints = {
+        audio: false,
+
+        video: {
+          facingMode: {
+            ideal:
+              'environment'
+          },
+
+          width: {
+            ideal:
+              1280
+          },
+
+          height: {
+            ideal:
+              720
+          }
         }
-
-        video.srcObject =
-          null;
-      }
-
-      document
-        .getElementById(
-          'startButton'
-        )
-        .disabled = false;
-
-      document
-        .getElementById(
-          'stopButton'
-        )
-        .disabled = true;
-    }
-
-
-    /**
-     * QR BERHASIL TERBACA
-     */
-    function handleQrDetected_(
-      rawValue,
-      controls
-    ) {
-      if (
-        qrAlreadyDetected
-      ) {
-        return;
-      }
-
-      const normalized =
-        String(
-          rawValue || ''
-        ).trim();
-
-      /*
-       * Hanya menerima bentuk token
-       * QR Santri Mahida.
-       */
-      const isMahidaQr =
-        /^MHQ1\.[0-9a-f]{96}$/
-          .test(
-            normalized
-          );
-
-      if (!isMahidaQr) {
-        setScannerStatus_(
-          'QR terbaca, tetapi bukan QR Santri Mahida.',
-          'error'
-        );
-
-        return;
-      }
-
-      qrAlreadyDetected =
-        true;
-
-      try {
-        if (controls) {
-          controls.stop();
-        }
-      } catch (error) {
-        // Tidak memengaruhi hasil.
-      }
+      };
 
       qrScannerControls =
-        null;
+        await qrCodeReader
+          .decodeFromConstraints(
+            constraints,
+            video,
+            function (
+              result,
+              error,
+              controls
+            ) {
+              if (!result) {
+                return;
+              }
 
-      document
-        .getElementById(
-          'startButton'
-        )
-        .disabled = false;
+              let rawValue = '';
 
-      document
-        .getElementById(
-          'stopButton'
-        )
-        .disabled = true;
+              if (
+                typeof result.getText ===
+                'function'
+              ) {
+                rawValue =
+                  result.getText();
 
-      document
-        .getElementById(
-          'maskedToken'
-        )
-        .textContent =
-          maskQrToken_(
-            normalized
+              } else if (
+                result.text
+              ) {
+                rawValue =
+                  result.text;
+              }
+
+              if (rawValue) {
+                handleQrDetected_(
+                  rawValue,
+                  controls
+                );
+              }
+            }
           );
 
-      document
-        .getElementById(
-          'scannerResult'
-        )
-        .classList.add(
-          'show'
-        );
-
       setScannerStatus_(
-        'QR berhasil dibaca oleh scanner kamera eksternal.',
-        'success'
+        'Kamera aktif. Arahkan QR Santri ke dalam kotak.',
+        'active'
       );
 
-      /*
-       * PENTING:
-       *
-       * Pada Tahap 4I.2C.1 ini
-       * token BELUM dikirim ke mana pun.
-       *
-       * Nanti Tahap 4I.2C.2
-       * baru menggunakan postMessage()
-       * untuk mengirim token kembali
-       * ke Web App Koperasi secara aman.
-       */
+    } catch (error) {
+      stopScanner_();
+
+      let message =
+        'Kamera tidak dapat diaktifkan.';
+
+      if (
+        error &&
+        error.name ===
+          'NotAllowedError'
+      ) {
+        message =
+          'Izin kamera ditolak. Izinkan kamera pada browser lalu coba lagi.';
+
+      } else if (
+        error &&
+        error.name ===
+          'NotFoundError'
+      ) {
+        message =
+          'Kamera tidak ditemukan pada perangkat.';
+
+      } else if (
+        error &&
+        error.message
+      ) {
+        message =
+          error.message;
+      }
+
+      setScannerStatus_(
+        message,
+        'error'
+      );
     }
+  }
 
 
-    /**
-     * MULAI SCANNER
-     */
-    async function startScanner_() {
-      clearScannerResult_();
+  /**
+   * ACK DARI WEB APP
+   *
+   * Hanya menerima balasan dari window
+   * yang membuka scanner dan session
+   * yang sama.
+   */
+  window.addEventListener(
+    'message',
+    function (event) {
+      if (
+        event.source !==
+        window.opener
+      ) {
+        return;
+      }
 
+      const data =
+        event.data;
+
+      if (
+        !data ||
+        data.type !==
+          MAHIDA_SCAN_ACK_TYPE_
+      ) {
+        return;
+      }
+
+      if (
+        String(
+          data.session || ''
+        ) !==
+        qrScannerSession
+      ) {
+        return;
+      }
+
+      if (
+        data.success === true
+      ) {
+        setScannerStatus_(
+          'QR berhasil diverifikasi. Kembali ke Web App Koperasi.',
+          'success'
+        );
+
+        stopScanner_();
+
+        window.setTimeout(
+          function () {
+            try {
+              window.close();
+            } catch (error) {
+              // Bisa ditutup manual.
+            }
+          },
+          700
+        );
+
+        return;
+      }
+
+      /*
+       * Server menolak QR.
+       * Scanner boleh digunakan lagi.
+       */
       qrAlreadyDetected =
         false;
 
-      if (
-        !window.ZXingBrowser
-      ) {
-        setScannerStatus_(
-          'Library scanner QR gagal dimuat.',
-          'error'
-        );
-
-        return;
-      }
-
-      if (
-        !navigator.mediaDevices ||
-        typeof navigator.mediaDevices
-          .getUserMedia !==
-          'function'
-      ) {
-        setScannerStatus_(
-          'Browser tidak menyediakan akses kamera.',
-          'error'
-        );
-
-        return;
-      }
-
-      document
-        .getElementById(
-          'startButton'
-        )
-        .disabled = true;
-
-      document
-        .getElementById(
-          'stopButton'
-        )
-        .disabled = false;
-
       setScannerStatus_(
-        'Meminta izin kamera...',
-        'loading'
+        String(
+          data.message ||
+          'QR ditolak oleh Web App Koperasi.'
+        ),
+        'error'
       );
+    }
+  );
 
-      try {
-        qrCodeReader =
-          new ZXingBrowser
-            .BrowserQRCodeReader();
 
-        const video =
-          document.getElementById(
-            'qrVideo'
-          );
+  document
+    .getElementById(
+      'startButton'
+    )
+    .addEventListener(
+      'click',
+      startScanner_
+    );
 
-        const constraints = {
-          audio: false,
-
-          video: {
-            facingMode: {
-              ideal:
-                'environment'
-            },
-
-            width: {
-              ideal:
-                1280
-            },
-
-            height: {
-              ideal:
-                720
-            }
-          }
-        };
-
-        qrScannerControls =
-          await qrCodeReader
-            .decodeFromConstraints(
-              constraints,
-              video,
-              function (
-                result,
-                error,
-                controls
-              ) {
-                /*
-                 * Tidak menampilkan error
-                 * "QR belum ditemukan"
-                 * setiap frame.
-                 */
-                if (!result) {
-                  return;
-                }
-
-                let rawValue = '';
-
-                if (
-                  typeof result.getText ===
-                  'function'
-                ) {
-                  rawValue =
-                    result.getText();
-
-                } else if (
-                  result.text
-                ) {
-                  rawValue =
-                    result.text;
-                }
-
-                if (
-                  rawValue
-                ) {
-                  handleQrDetected_(
-                    rawValue,
-                    controls
-                  );
-                }
-              }
-            );
-
-        setScannerStatus_(
-          'Kamera aktif. Arahkan QR Santri ke dalam kotak.',
-          'active'
-        );
-
-      } catch (error) {
+  document
+    .getElementById(
+      'stopButton'
+    )
+    .addEventListener(
+      'click',
+      function () {
         stopScanner_();
 
-        let message =
-          'Kamera tidak dapat diaktifkan.';
-
-        if (
-          error &&
-          error.name ===
-            'NotAllowedError'
-        ) {
-          message =
-            'Izin kamera ditolak. Izinkan kamera pada browser lalu coba lagi.';
-
-        } else if (
-          error &&
-          error.name ===
-            'NotFoundError'
-        ) {
-          message =
-            'Kamera tidak ditemukan pada perangkat.';
-
-        } else if (
-          error &&
-          error.message
-        ) {
-          message =
-            error.message;
-        }
-
         setScannerStatus_(
-          message,
-          'error'
+          'Kamera dihentikan.',
+          'idle'
         );
       }
-    }
-
-
-    /*
-     * ========================================================
-     * EVENT
-     * ========================================================
-     */
-
-    document
-      .getElementById(
-        'startButton'
-      )
-      .addEventListener(
-        'click',
-        startScanner_
-      );
-
-    document
-      .getElementById(
-        'stopButton'
-      )
-      .addEventListener(
-        'click',
-        function () {
-          stopScanner_();
-
-          setScannerStatus_(
-            'Kamera dihentikan.',
-            'idle'
-          );
-        }
-      );
-
-
-    /*
-     * Matikan kamera jika halaman
-     * ditutup atau ditinggalkan.
-     */
-    window.addEventListener(
-      'beforeunload',
-      stopScanner_
     );
-  </script>
+
+  window.addEventListener(
+    'beforeunload',
+    stopScanner_
+  );
+
+
+  /*
+   * Bila URL dibuka secara langsung
+   * tanpa Web App.
+   */
+  if (
+    !isValidScannerSession_()
+  ) {
+    setScannerStatus_(
+      'Scanner siap, tetapi harus dibuka melalui Web App Koperasi.',
+      'idle'
+    );
+  }
+</script>
 
 </body>
 </html>
