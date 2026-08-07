@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0">
+
+  <title>
+    Scanner QR Santri - Koperasi Mahida
+  </title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
+      color: #0f172a;
+      background: #f1f5f9;
+    }
+
+    .app {
+      width: min(100%, 720px);
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .header {
+      margin-bottom: 16px;
+    }
+
+    .brand {
+      margin: 0 0 5px;
+      color: #0f3b57;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+    }
+
+    h1 {
+      margin: 0;
+      color: #0f172a;
+      font-size: 26px;
+    }
+
+    .subtitle {
+      margin: 7px 0 0;
+      color: #64748b;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .card {
+      padding: 16px;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      background: #ffffff;
+      box-shadow:
+        0 10px 30px
+        rgba(15, 23, 42, 0.06);
+    }
+
+    .camera-shell {
+      position: relative;
+      overflow: hidden;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      border-radius: 14px;
+      background: #0f172a;
+    }
+
+    #qrVideo {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .scan-frame {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: min(66%, 280px);
+      aspect-ratio: 1 / 1;
+      border: 3px solid #ffffff;
+      border-radius: 18px;
+      transform:
+        translate(-50%, -50%);
+      box-shadow:
+        0 0 0 9999px
+        rgba(15, 23, 42, 0.22);
+      pointer-events: none;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+
+    button {
+      min-height: 44px;
+      padding: 0 17px;
+      border: 0;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .primary {
+      color: #ffffff;
+      background: #075985;
+    }
+
+    .secondary {
+      color: #0f3b57;
+      background: #eaf3f7;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .status {
+      margin-top: 14px;
+      padding: 11px 13px;
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .status.idle {
+      color: #475569;
+      background: #f8fafc;
+    }
+
+    .status.loading {
+      color: #1d4ed8;
+      background: #eff6ff;
+    }
+
+    .status.active {
+      color: #166534;
+      background: #f0fdf4;
+    }
+
+    .status.success {
+      color: #166534;
+      background: #dcfce7;
+    }
+
+    .status.error {
+      color: #991b1b;
+      background: #fef2f2;
+    }
+
+    .result {
+      display: none;
+      margin-top: 16px;
+      padding: 16px;
+      border: 1px solid #bbf7d0;
+      border-radius: 12px;
+      background: #f0fdf4;
+    }
+
+    .result.show {
+      display: block;
+    }
+
+    .result h2 {
+      margin: 0 0 8px;
+      color: #166534;
+      font-size: 18px;
+    }
+
+    .result p {
+      margin: 5px 0;
+      font-size: 13px;
+    }
+
+    .masked-token {
+      display: inline-block;
+      margin-top: 5px;
+      padding: 6px 8px;
+      border-radius: 7px;
+      color: #334155;
+      background: #ffffff;
+      font-family: monospace;
+    }
+
+    .security-note {
+      margin-top: 16px;
+      padding: 11px 13px;
+      border-radius: 10px;
+      color: #475569;
+      background: #f8fafc;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 520px) {
+      .app {
+        padding: 12px;
+      }
+
+      h1 {
+        font-size: 22px;
+      }
+
+      button {
+        flex: 1 1 140px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <main class="app">
+
+    <header class="header">
+      <p class="brand">
+        KOPERASI MAHIDA
+      </p>
+
+      <h1>
+        Scanner QR Santri
+      </h1>
+
+      <p class="subtitle">
+        Scanner kamera eksternal untuk
+        membaca QR Santri.
+      </p>
+    </header>
+
+    <section class="card">
+
+      <div class="camera-shell">
+
+        <video
+          id="qrVideo"
+          muted
+          playsinline>
+        </video>
+
+        <div
+          class="scan-frame"
+          aria-hidden="true">
+        </div>
+
+      </div>
+
+      <div class="controls">
+
+        <button
+          type="button"
+          id="startButton"
+          class="primary">
+          Aktifkan Kamera
+        </button>
+
+        <button
+          type="button"
+          id="stopButton"
+          class="secondary"
+          disabled>
+          Hentikan Kamera
+        </button>
+
+      </div>
+
+      <div
+        id="scannerStatus"
+        class="status idle">
+        Kamera belum diaktifkan.
+      </div>
+
+      <div
+        id="scannerResult"
+        class="result">
+
+        <h2>
+          ✓ QR Santri terbaca
+        </h2>
+
+        <p>
+          Format QR sesuai dengan
+          QR Santri Mahida.
+        </p>
+
+        <p>
+          Token:
+        </p>
+
+        <span
+          id="maskedToken"
+          class="masked-token">
+        </span>
+
+        <div class="security-note">
+          Token lengkap tidak ditampilkan,
+          tidak disimpan, dan belum dikirim
+          ke Web App Koperasi.
+        </div>
+
+      </div>
+
+    </section>
+
+  </main>
+
+  <!--
+    ZXing Browser.
+    Versi dipasang tetap agar perubahan
+    versi library tidak mengubah scanner
+    tanpa kita sadari.
+  -->
+  <script
+    src="https://unpkg.com/@zxing/browser@0.2.1">
+  </script>
+
+  <script>
+    let qrCodeReader =
+      null;
+
+    let qrScannerControls =
+      null;
+
+    let qrAlreadyDetected =
+      false;
+
+
+    /**
+     * MASK TOKEN
+     *
+     * Token lengkap tidak pernah
+     * ditampilkan ke halaman.
+     */
+    function maskQrToken_(
+      rawToken
+    ) {
+      const text =
+        String(
+          rawToken || ''
+        ).trim();
+
+      if (
+        text.length <= 20
+      ) {
+        return '***';
+      }
+
+      return (
+        text.substring(0, 12) +
+        '...' +
+        text.substring(
+          text.length - 8
+        )
+      );
+    }
+
+
+    /**
+     * STATUS SCANNER
+     */
+    function setScannerStatus_(
+      message,
+      state
+    ) {
+      const element =
+        document.getElementById(
+          'scannerStatus'
+        );
+
+      element.textContent =
+        message;
+
+      element.className =
+        'status ' +
+        state;
+    }
+
+
+    /**
+     * RESET HASIL
+     */
+    function clearScannerResult_() {
+      const result =
+        document.getElementById(
+          'scannerResult'
+        );
+
+      const token =
+        document.getElementById(
+          'maskedToken'
+        );
+
+      result.classList.remove(
+        'show'
+      );
+
+      token.textContent = '';
+    }
+
+
+    /**
+     * STOP SCANNER
+     */
+    function stopScanner_() {
+      if (
+        qrScannerControls
+      ) {
+        try {
+          qrScannerControls.stop();
+        } catch (error) {
+          // Scanner sudah berhenti.
+        }
+      }
+
+      qrScannerControls =
+        null;
+
+      const video =
+        document.getElementById(
+          'qrVideo'
+        );
+
+      if (
+        video &&
+        video.srcObject
+      ) {
+        try {
+          video.srcObject
+            .getTracks()
+            .forEach(function (track) {
+              track.stop();
+            });
+        } catch (error) {
+          // Tidak memengaruhi scanner.
+        }
+
+        video.srcObject =
+          null;
+      }
+
+      document
+        .getElementById(
+          'startButton'
+        )
+        .disabled = false;
+
+      document
+        .getElementById(
+          'stopButton'
+        )
+        .disabled = true;
+    }
+
+
+    /**
+     * QR BERHASIL TERBACA
+     */
+    function handleQrDetected_(
+      rawValue,
+      controls
+    ) {
+      if (
+        qrAlreadyDetected
+      ) {
+        return;
+      }
+
+      const normalized =
+        String(
+          rawValue || ''
+        ).trim();
+
+      /*
+       * Hanya menerima bentuk token
+       * QR Santri Mahida.
+       */
+      const isMahidaQr =
+        /^MHQ1\.[0-9a-f]{96}$/
+          .test(
+            normalized
+          );
+
+      if (!isMahidaQr) {
+        setScannerStatus_(
+          'QR terbaca, tetapi bukan QR Santri Mahida.',
+          'error'
+        );
+
+        return;
+      }
+
+      qrAlreadyDetected =
+        true;
+
+      try {
+        if (controls) {
+          controls.stop();
+        }
+      } catch (error) {
+        // Tidak memengaruhi hasil.
+      }
+
+      qrScannerControls =
+        null;
+
+      document
+        .getElementById(
+          'startButton'
+        )
+        .disabled = false;
+
+      document
+        .getElementById(
+          'stopButton'
+        )
+        .disabled = true;
+
+      document
+        .getElementById(
+          'maskedToken'
+        )
+        .textContent =
+          maskQrToken_(
+            normalized
+          );
+
+      document
+        .getElementById(
+          'scannerResult'
+        )
+        .classList.add(
+          'show'
+        );
+
+      setScannerStatus_(
+        'QR berhasil dibaca oleh scanner kamera eksternal.',
+        'success'
+      );
+
+      /*
+       * PENTING:
+       *
+       * Pada Tahap 4I.2C.1 ini
+       * token BELUM dikirim ke mana pun.
+       *
+       * Nanti Tahap 4I.2C.2
+       * baru menggunakan postMessage()
+       * untuk mengirim token kembali
+       * ke Web App Koperasi secara aman.
+       */
+    }
+
+
+    /**
+     * MULAI SCANNER
+     */
+    async function startScanner_() {
+      clearScannerResult_();
+
+      qrAlreadyDetected =
+        false;
+
+      if (
+        !window.ZXingBrowser
+      ) {
+        setScannerStatus_(
+          'Library scanner QR gagal dimuat.',
+          'error'
+        );
+
+        return;
+      }
+
+      if (
+        !navigator.mediaDevices ||
+        typeof navigator.mediaDevices
+          .getUserMedia !==
+          'function'
+      ) {
+        setScannerStatus_(
+          'Browser tidak menyediakan akses kamera.',
+          'error'
+        );
+
+        return;
+      }
+
+      document
+        .getElementById(
+          'startButton'
+        )
+        .disabled = true;
+
+      document
+        .getElementById(
+          'stopButton'
+        )
+        .disabled = false;
+
+      setScannerStatus_(
+        'Meminta izin kamera...',
+        'loading'
+      );
+
+      try {
+        qrCodeReader =
+          new ZXingBrowser
+            .BrowserQRCodeReader();
+
+        const video =
+          document.getElementById(
+            'qrVideo'
+          );
+
+        const constraints = {
+          audio: false,
+
+          video: {
+            facingMode: {
+              ideal:
+                'environment'
+            },
+
+            width: {
+              ideal:
+                1280
+            },
+
+            height: {
+              ideal:
+                720
+            }
+          }
+        };
+
+        qrScannerControls =
+          await qrCodeReader
+            .decodeFromConstraints(
+              constraints,
+              video,
+              function (
+                result,
+                error,
+                controls
+              ) {
+                /*
+                 * Tidak menampilkan error
+                 * "QR belum ditemukan"
+                 * setiap frame.
+                 */
+                if (!result) {
+                  return;
+                }
+
+                let rawValue = '';
+
+                if (
+                  typeof result.getText ===
+                  'function'
+                ) {
+                  rawValue =
+                    result.getText();
+
+                } else if (
+                  result.text
+                ) {
+                  rawValue =
+                    result.text;
+                }
+
+                if (
+                  rawValue
+                ) {
+                  handleQrDetected_(
+                    rawValue,
+                    controls
+                  );
+                }
+              }
+            );
+
+        setScannerStatus_(
+          'Kamera aktif. Arahkan QR Santri ke dalam kotak.',
+          'active'
+        );
+
+      } catch (error) {
+        stopScanner_();
+
+        let message =
+          'Kamera tidak dapat diaktifkan.';
+
+        if (
+          error &&
+          error.name ===
+            'NotAllowedError'
+        ) {
+          message =
+            'Izin kamera ditolak. Izinkan kamera pada browser lalu coba lagi.';
+
+        } else if (
+          error &&
+          error.name ===
+            'NotFoundError'
+        ) {
+          message =
+            'Kamera tidak ditemukan pada perangkat.';
+
+        } else if (
+          error &&
+          error.message
+        ) {
+          message =
+            error.message;
+        }
+
+        setScannerStatus_(
+          message,
+          'error'
+        );
+      }
+    }
+
+
+    /*
+     * ========================================================
+     * EVENT
+     * ========================================================
+     */
+
+    document
+      .getElementById(
+        'startButton'
+      )
+      .addEventListener(
+        'click',
+        startScanner_
+      );
+
+    document
+      .getElementById(
+        'stopButton'
+      )
+      .addEventListener(
+        'click',
+        function () {
+          stopScanner_();
+
+          setScannerStatus_(
+            'Kamera dihentikan.',
+            'idle'
+          );
+        }
+      );
+
+
+    /*
+     * Matikan kamera jika halaman
+     * ditutup atau ditinggalkan.
+     */
+    window.addEventListener(
+      'beforeunload',
+      stopScanner_
+    );
+  </script>
+
+</body>
+</html>
