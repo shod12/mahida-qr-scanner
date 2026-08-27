@@ -1476,12 +1476,30 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
   let qrAlreadyDetected =
     false;
 
+  const qrScannerParams_ =
+    new URLSearchParams(
+      window.location.search
+    );
+
   const qrScannerSession =
     String(
-      new URLSearchParams(
-        window.location.search
-      ).get('session') || ''
+      qrScannerParams_.get('session') || ''
     ).trim();
+
+  const qrScannerMode_ =
+    String(
+      qrScannerParams_.get('mode') ||
+      'single'
+    ).trim().toLowerCase() ===
+      'massal'
+      ? 'massal'
+      : 'single';
+
+  let qrPendingToken_ =
+    '';
+
+  let qrLastHandledToken_ =
+    '';
 
 
   /**
@@ -1494,6 +1512,41 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
           qrScannerSession
         )
     );
+  }
+
+
+  function isMassScannerMode_() {
+    return (
+      qrScannerMode_ ===
+      'massal'
+    );
+  }
+
+
+  function applyScannerModeUi_() {
+    if (!isMassScannerMode_()) {
+      return;
+    }
+
+    const title =
+      document.querySelector(
+        '.header h1'
+      );
+
+    const subtitle =
+      document.querySelector(
+        '.subtitle'
+      );
+
+    if (title) {
+      title.textContent =
+        'Scanner QR Santri Massal';
+    }
+
+    if (subtitle) {
+      subtitle.textContent =
+        'Scan QR santri secara berurutan. Kamera tetap aktif setelah setiap QR diverifikasi.';
+    }
   }
 
 
@@ -1756,19 +1809,37 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
       return;
     }
 
+    /*
+     * Pada mode massal kamera tetap hidup. QR terakhir yang baru
+     * selesai diproses diabaikan sampai petugas mengarahkan QR lain,
+     * sehingga kartu yang masih berada di frame tidak menembak ulang.
+     */
+    if (
+      isMassScannerMode_() &&
+      normalized ===
+        qrLastHandledToken_
+    ) {
+      return;
+    }
+
     qrAlreadyDetected =
       true;
 
-    try {
-      if (controls) {
-        controls.stop();
-      }
-    } catch (error) {
-      // Tidak memengaruhi hasil.
-    }
+    qrPendingToken_ =
+      normalized;
 
-    qrScannerControls =
-      null;
+    if (!isMassScannerMode_()) {
+      try {
+        if (controls) {
+          controls.stop();
+        }
+      } catch (error) {
+        // Tidak memengaruhi hasil.
+      }
+
+      qrScannerControls =
+        null;
+    }
 
     const startButton =
       document.getElementById(
@@ -1780,14 +1851,16 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
         'stopButton'
       );
 
-    if (startButton) {
-      startButton.disabled =
-        false;
-    }
+    if (!isMassScannerMode_()) {
+      if (startButton) {
+        startButton.disabled =
+          false;
+      }
 
-    if (stopButton) {
-      stopButton.disabled =
-        true;
+      if (stopButton) {
+        stopButton.disabled =
+          true;
+      }
     }
 
     const maskedToken =
@@ -1827,6 +1900,9 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
     } else {
       qrAlreadyDetected =
         false;
+
+      qrPendingToken_ =
+        '';
     }
   }
 
@@ -2070,6 +2146,29 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
       if (
         data.success === true
       ) {
+        if (
+          isMassScannerMode_()
+        ) {
+          qrLastHandledToken_ =
+            qrPendingToken_;
+
+          qrPendingToken_ =
+            '';
+
+          qrAlreadyDetected =
+            false;
+
+          setScannerStatus_(
+            String(
+              data.message ||
+              'QR berhasil diverifikasi. Siap scan santri berikutnya.'
+            ),
+            'success'
+          );
+
+          return;
+        }
+
         setScannerStatus_(
           'QR berhasil diverifikasi. Kembali ke Web App Koperasi.',
           'success'
@@ -2093,8 +2192,19 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
 
       /*
        * Server menolak QR.
-       * Scanner boleh digunakan lagi.
+       * Single: perilaku lama tetap.
+       * Massal: kamera tetap hidup dan menunggu QR yang berbeda.
        */
+      if (
+        isMassScannerMode_()
+      ) {
+        qrLastHandledToken_ =
+          qrPendingToken_;
+
+        qrPendingToken_ =
+          '';
+      }
+
       qrAlreadyDetected =
         false;
 
@@ -2127,6 +2237,12 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
       function () {
         stopScanner_();
 
+        qrPendingToken_ =
+          '';
+
+        qrLastHandledToken_ =
+          '';
+
         setScannerStatus_(
           'Kamera dihentikan.',
           'idle'
@@ -2139,6 +2255,8 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
     stopScanner_
   );
 
+
+  applyScannerModeUi_();
 
   /*
    * Bila URL dibuka secara langsung
