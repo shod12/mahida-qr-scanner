@@ -1708,6 +1708,15 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
       ? 'massal'
       : 'single';
 
+    const qrScannerClient_ =
+    String(
+      qrScannerParams_.get('client') ||
+      'web'
+    ).trim().toLowerCase() ===
+      'android'
+      ? 'android'
+      : 'web';
+
   let qrPendingToken_ =
     '';
 
@@ -1736,6 +1745,47 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
       qrScannerMode_ ===
       'massal'
     );
+  }
+
+    function isAndroidScannerClient_() {
+    return (
+      qrScannerClient_ ===
+      'android'
+    );
+  }
+
+
+  function hasAndroidBridge_() {
+    return !!(
+      window.MahidaAndroid &&
+      typeof window.MahidaAndroid.postMessage ===
+        'function'
+    );
+  }
+
+
+  function sendAndroidBridgeMessage_(
+    payload
+  ) {
+    if (
+      !hasAndroidBridge_()
+    ) {
+      return false;
+    }
+
+    try {
+      window.MahidaAndroid
+        .postMessage(
+          JSON.stringify(
+            payload || {}
+          )
+        );
+
+      return true;
+
+    } catch (error) {
+      return false;
+    }
   }
 
 
@@ -1930,7 +1980,41 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
     );
   }
 
+/**
+ * KEMBALI KE HOST SCANNER
+ * Web → kembali ke Web App
+ * Android → kembali ke layar aplikasi
+ */
+function returnToScannerHost_() {
+    if (
+      !isAndroidScannerClient_()
+    ) {
+      returnToMahidaWebApp_();
+      return;
+    }
 
+    clearMassScanSuccessFeedback_();
+
+    stopScanner_();
+
+    const sent =
+      sendAndroidBridgeMessage_(
+        {
+          type:
+            'MAHIDA_SCANNER_CLOSE_V1',
+
+          mode:
+            qrScannerMode_
+        }
+      );
+
+    if (!sent) {
+      setScannerStatus_(
+        'Tidak dapat kembali ke aplikasi Mahida.',
+        'error'
+      );
+    }
+  }
   /**
    * MASK TOKEN
    */
@@ -2158,6 +2242,46 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
     return true;
   }
 
+  /**
+ * KIRIM TOKEN KE APLIKASI ANDROID
+ */
+function sendQrToAndroidApp_(
+    rawToken
+  ) {
+    if (
+      !isAndroidScannerClient_()
+    ) {
+      return false;
+    }
+
+    if (
+      !hasAndroidBridge_()
+    ) {
+      setScannerStatus_(
+        'Aplikasi Mahida tidak terhubung. Buka scanner dari aplikasi Mahida Scanner.',
+        'error'
+      );
+
+      return false;
+    }
+
+    return sendAndroidBridgeMessage_(
+      {
+        type:
+          MAHIDA_SCAN_MESSAGE_TYPE_,
+
+        client:
+          'android',
+
+        mode:
+          qrScannerMode_,
+
+        token:
+          rawToken
+      }
+    );
+  }
+
 
   /**
    * QR BERHASIL TERBACA
@@ -2270,13 +2394,19 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
     }
 
     const sent =
-      sendQrToWebApp_(
-        normalized
-      );
+      isAndroidScannerClient_()
+        ? sendQrToAndroidApp_(
+            normalized
+          )
+        : sendQrToWebApp_(
+            normalized
+          );
 
     if (sent) {
       setScannerStatus_(
-        'QR terbaca. Menunggu verifikasi dari Web App Koperasi...',
+        isAndroidScannerClient_()
+          ? 'QR terbaca. Menunggu verifikasi dari aplikasi Mahida...'
+          : 'QR terbaca. Menunggu verifikasi dari Web App Koperasi...',
         'loading'
       );
 
@@ -2301,33 +2431,42 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
     qrAlreadyDetected =
       false;
 
-    /*
-     * Scanner produksi harus dibuka
-     * dari Web App agar memiliki session.
-     */
     if (
-      !isValidScannerSession_()
+      !isAndroidScannerClient_()
+    ) {
+      if (
+        !isValidScannerSession_()
+      ) {
+        setScannerStatus_(
+          'Buka scanner ini melalui menu Scan QR Santri pada Web App Koperasi.',
+          'error'
+        );
+
+        return;
+      }
+
+      if (
+        !window.opener ||
+        window.opener.closed
+      ) {
+        setScannerStatus_(
+          'Web App Koperasi tidak terhubung. Tutup halaman ini lalu buka scanner dari Web App.',
+          'error'
+        );
+
+        return;
+      }
+
+    } else if (
+      !hasAndroidBridge_()
     ) {
       setScannerStatus_(
-        'Buka scanner ini melalui menu Scan QR Santri pada Web App Koperasi.',
+        'Scanner Android harus dibuka melalui aplikasi Mahida Scanner.',
         'error'
       );
 
       return;
     }
-
-    if (
-      !window.opener ||
-      window.opener.closed
-    ) {
-      setScannerStatus_(
-        'Web App Koperasi tidak terhubung. Tutup halaman ini lalu buka scanner dari Web App.',
-        'error'
-      );
-
-      return;
-    }
-
     if (
       !window.ZXingBrowser
     ) {
@@ -2492,78 +2631,40 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
 
 
   /**
-   * ACK DARI WEB APP
-   *
-   * Hanya menerima balasan dari window
-   * yang membuka scanner dan session
-   * yang sama.
-   */
-  window.addEventListener(
-    'message',
-    function (event) {
-      if (
-        event.source !==
-        window.opener
-      ) {
-        return;
-      }
+ * PROSES ACK SCANNER
+ *
+ * Dipakai bersama oleh:
+ * - Web App Mahida
+ * - Mahida Scanner Android
+ */
+function handleMahidaScannerAck_(
+    data
+  ) {
+    if (
+      !data ||
+      data.type !==
+        MAHIDA_SCAN_ACK_TYPE_
+    ) {
+      return;
+    }
 
-      const data =
-        event.data;
-
-      if (
-        !data ||
-        data.type !==
-          MAHIDA_SCAN_ACK_TYPE_
-      ) {
-        return;
-      }
-
-      if (
-        String(
-          data.session || ''
-        ) !==
+    /*
+     * Session hanya diwajibkan
+     * untuk jalur Web.
+     */
+    if (
+      !isAndroidScannerClient_() &&
+      String(
+        data.session || ''
+      ) !==
         qrScannerSession
-      ) {
-        return;
-      }
+    ) {
+      return;
+    }
 
-      if (
-        data.success === true
-      ) {
-        if (
-          isMassScannerMode_()
-        ) {
-          qrLastHandledToken_ =
-            qrPendingToken_;
-
-          qrPendingToken_ =
-            '';
-
-          showMassScanSuccessFeedback_(
-            String(
-              data.message ||
-              'Santri berhasil ditambahkan. Siap scan santri berikutnya.'
-            )
-          );
-
-          return;
-        }
-
-        /*
-         * Scan Satu: begitu Web App mengirim ACK sukses,
-         * langsung fokus kembali ke Web App dan tutup scanner.
-         */
-        returnToMahidaWebApp_();
-
-        return;
-      }
-
-      /*
-       * Server menolak QR.
-       * Single: perilaku lama tetap.
-       * Massal: kamera tetap hidup dan menunggu QR yang berbeda.
-       */
+    if (
+      data.success === true
+    ) {
       if (
         isMassScannerMode_()
       ) {
@@ -2572,21 +2673,122 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
 
         qrPendingToken_ =
           '';
+
+        showMassScanSuccessFeedback_(
+          String(
+            data.message ||
+            'Santri berhasil ditambahkan. Siap scan santri berikutnya.'
+          )
+        );
+
+        return;
       }
 
-      qrAlreadyDetected =
-        false;
+      /*
+       * Scan Satu:
+       * kembali ke host setelah
+       * verifikasi berhasil.
+       */
+      returnToScannerHost_();
 
-      setScannerStatus_(
-        String(
-          data.message ||
-          'QR ditolak oleh Web App Koperasi.'
-        ),
-        'error'
+      return;
+    }
+
+    /*
+     * QR ditolak.
+     */
+    if (
+      isMassScannerMode_()
+    ) {
+      qrLastHandledToken_ =
+        qrPendingToken_;
+
+      qrPendingToken_ =
+        '';
+    }
+
+    qrAlreadyDetected =
+      false;
+
+    setScannerStatus_(
+      String(
+        data.message ||
+        (
+          isAndroidScannerClient_()
+            ? 'QR ditolak oleh aplikasi Mahida.'
+            : 'QR ditolak oleh Web App Koperasi.'
+        )
+      ),
+      'error'
+    );
+  }
+
+
+/**
+ * ACK DARI WEB APP
+ */
+window.addEventListener(
+    'message',
+    function (event) {
+      if (
+        isAndroidScannerClient_()
+      ) {
+        return;
+      }
+
+      if (
+        event.source !==
+        window.opener
+      ) {
+        return;
+      }
+
+      handleMahidaScannerAck_(
+        event.data
       );
     }
   );
 
+
+/**
+ * ACK DARI APLIKASI ANDROID
+ *
+ * Android nanti memanggil fungsi ini
+ * setelah qr.verify selesai.
+ */
+window.mahidaAndroidReceiveAck =
+    function (
+      payload
+    ) {
+      if (
+        !isAndroidScannerClient_()
+      ) {
+        return;
+      }
+
+      let data =
+        payload;
+
+      if (
+        typeof payload ===
+          'string'
+      ) {
+        try {
+          data =
+            JSON.parse(
+              payload
+            );
+
+        } catch (error) {
+          data =
+            null;
+        }
+      }
+
+      handleMahidaScannerAck_(
+        data
+      );
+    };
 
   document
     .getElementById(
@@ -2633,7 +2835,7 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
         qrAlreadyDetected =
           true;
 
-        returnToMahidaWebApp_();
+        returnToScannerHost_();
       }
     );
 
@@ -2650,6 +2852,7 @@ const MAHIDA_SCAN_MESSAGE_TYPE_ =
    * tanpa Web App.
    */
   if (
+    !isAndroidScannerClient_() &&
     !isValidScannerSession_()
   ) {
     setScannerStatus_(
