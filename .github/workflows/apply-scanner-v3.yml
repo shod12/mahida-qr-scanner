@@ -1,0 +1,47 @@
+name: Apply Scanner V3 UI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scanner-v3.css'
+      - '.github/workflows/apply-scanner-v3.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-index:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Inject V3 stylesheet safely
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          marker = '<link rel="stylesheet" href="scanner-v3.css?v=20260901">'
+          if marker not in s:
+              if '</head>' not in s:
+                  raise SystemExit('index.html tidak memiliki </head>')
+              s = s.replace('</head>', '  ' + marker + '\n</head>', 1)
+          s = s.replace('content="#f4faf6"', 'content="#f4f7fa"', 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Commit patched index
+        run: |
+          if git diff --quiet -- index.html; then
+            echo "Tidak ada perubahan index yang diperlukan."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "Apply Mahida Scanner V3 UI to index"
+          git push origin main
